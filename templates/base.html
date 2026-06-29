@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="TrendDNA — Analyze how internet discussions evolve around any topic using NLP, clustering, and sentiment analysis.">
+
+    <title>{% block title %}TrendDNA{% endblock %}</title>
+
+    <!-- Google Fonts — Inter for clean analytics typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Chart.js CDN — loaded here so it's available on all pages -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/main.css' %}">
+</head>
+<body>
+    <!-- ================================================================== -->
+    <!-- Navigation Bar                                                      -->
+    <!-- ================================================================== -->
+    <nav class="nav" id="main-nav">
+        <div class="nav__brand">
+            <span class="nav__logo">◇</span>
+            <span class="nav__title">Trend<span class="nav__title--accent">DNA</span></span>
+        </div>
+        <div class="nav__subtitle">Internet Archaeologist</div>
+        <div class="nav__status" id="nav-status">
+            <span class="nav__status-dot"></span>
+            <span class="nav__status-text">System Online</span>
+        </div>
+    </nav>
+
+    <!-- ================================================================== -->
+    <!-- Main Content                                                        -->
+    <!-- ================================================================== -->
+    <main class="main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- ================================================================== -->
+    <!-- Toast Notification Container                                        -->
+    <!-- ================================================================== -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- ================================================================== -->
+    <!-- Scripts                                                             -->
+    <!-- ================================================================== -->
+    <script src="{% static 'js/api.js' %}"></script>
+    <script src="{% static 'js/charts.js' %}"></script>
+    <script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>

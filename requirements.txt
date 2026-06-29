@@ -1,0 +1,62 @@
+# =============================================================================
+# TrendDNA — Python Dependencies
+# =============================================================================
+# WHY PINNED VERSIONS:
+#   Without pinning, pip grabs the latest version. A breaking update in a
+#   dependency could silently break the app. Pinned versions guarantee that
+#   anyone cloning this repo gets the exact same environment.
+#
+# INTERVIEW Q: "Why not use >= for flexible versions?"
+#   "For a deployed application, reproducibility matters more than getting
+#   the latest patch. I pin exact versions and update them intentionally
+#   after testing. Libraries use >=, applications use ==."
+# =============================================================================
+
+# Framework
+Django==5.1.5
+djangorestframework==3.15.2
+
+# Configuration — reads secrets from .env files
+# WHY: Decouples secrets from source code (12-Factor App principle)
+python-decouple==3.8
+
+# PostgreSQL adapter (production database)
+# WHY psycopg2-binary: Pre-compiled, no system dependencies needed.
+# In large-scale production, you'd use psycopg2 (non-binary) for control.
+psycopg2-binary==2.9.10
+
+# Database URL parser (production)
+# WHY: Render provides DATABASE_URL as a single connection string.
+# This library parses it into Django's DATABASES dict format.
+dj-database-url==2.3.0
+
+# Production WSGI server
+# WHY Gunicorn: Industry-standard Python WSGI server. Django's runserver
+# is single-threaded and not designed for production traffic.
+gunicorn==23.0.0
+
+# Static file serving in production
+# WHY: Django can't serve static files efficiently in production.
+# WhiteNoise serves them directly from the WSGI app — no Nginx needed.
+whitenoise==6.8.2
+
+# CORS headers
+# WHY: Browsers block cross-origin requests by default. This middleware
+# adds the headers that allow our frontend to call the API.
+django-cors-headers==4.6.0
+
+# HTTP client for data source APIs (Reddit, YouTube)
+# WHY requests (not urllib3): Cleaner API, session support, automatic
+# JSON parsing, timeout handling. Used by both adapters.
+requests==2.32.3
+
+# Sentence-level semantic embeddings (Phase 4)
+# WHY sentence-transformers: Provides pre-trained models that convert text
+# to fixed-length vectors capturing semantic meaning. all-MiniLM-L6-v2 is
+# 80MB, runs locally without GPU, and produces 384-dim vectors.
+sentence-transformers==3.3.1
+
+# Numerical computing — vector serialization and matrix operations
+# WHY explicit: sentence-transformers includes it, but we use numpy
+# directly for tobytes()/frombuffer() vector serialization.
+numpy>=1.26.0
