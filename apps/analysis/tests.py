@@ -241,7 +241,7 @@ class EmbeddingStatusTest(TestCase):
 # Phase 5: Clustering Tests
 # =============================================================================
 
-from apps.analysis.models import AnalysisRun, Cluster, ClusterMembership
+from apps.analysis.models import AnalysisRun, Cluster, ClusterMembership, SentimentResult, Insight
 
 
 class ClusteringServiceTest(TestCase):
@@ -507,3 +507,430 @@ class LabelGenerationTest(TestCase):
         from apps.analysis.services.clustering_service import _generate_label
         label = _generate_label([])
         self.assertEqual(label, "General Discussion")
+
+
+# =============================================================================
+# Phase 6: Sentiment Analysis Tests
+# =============================================================================
+
+
+class SentimentServiceTest(TestCase):
+    """
+    Test VADER sentiment analysis service.
+
+    WHY TEST WITH KNOWN TEXT:
+        VADER is deterministic — same text always produces same scores.
+        We use texts with known sentiment to verify our service correctly
+        stores scores and assigns labels.
+    """
+
+    def setUp(self):
+        self.topic = Topic.objects.create(name="Sentiment test topic")
+        self.discussions = []
+        texts = [
+            ("This is absolutely amazing and wonderful!", "positive"),
+            ("I love this product, it's the best!", "positive"),
+            ("This is terrible and awful.", "negative"),
+            ("I hate this, worst experience ever.", "negative"),
+            ("The meeting is at 3pm.", "neutral"),
+            ("The package arrived today.", "neutral"),
+            ("Great quality but terrible price!", "mixed"),
+        ]
+        for i, (text, _) in enumerate(texts):
+            d = Discussion.objects.create(
+                topic=self.topic,
+                source="reddit",
+                source_id=f"sent_{i}",
+                content=text,
+            )
+            self.discussions.append(d)
+
+    def test_analyze_sentiment_creates_results(self):
+        """VADER should create SentimentResult for each discussion."""
+        from apps.analysis.services.sentiment_service import analyze_sentiment
+        stats = analyze_sentiment(self.topic.id)
+
+        self.assertEqual(stats["discussion_count"], 7)
+        self.assertEqual(
+            SentimentResult.objects.filter(discussion__topic_id=self.topic.id).count(),
+            7,
+        )
+
+    def test_sentiment_labels_correct(self):
+        """Positive text → positive label, negative text → negative."""
+        from apps.analysis.services.sentiment_service import analyze_sentiment
+        analyze_sentiment(self.topic.id)
+
+        # "This is absolutely amazing and wonderful!" → positive
+        result = SentimentResult.objects.get(discussion=self.discussions[0])
+        self.assertEqual(result.label, "positive")
+        self.assertGreater(result.compound_score, 0.05)
+
+        # "This is terrible and awful." → negative
+        result = SentimentResult.objects.get(discussion=self.discussions[2])
+        self.assertEqual(result.label, "negative")
+        self.assertLess(result.compound_score, -0.05)
+
+    def test_compound_score_range(self):
+        """All compound scores should be between -1 and 1."""
+        from apps.analysis.services.sentiment_service import analyze_sentiment
+        analyze_sentiment(self.topic.id)
+
+        for sr in SentimentResult.objects.filter(discussion__topic_id=self.topic.id):
+            self.assertGreaterEqual(sr.compound_score, -1.0)
+            self.assertLessEqual(sr.compound_score, 1.0)
+
+    def test_component_scores_sum_to_one(self):
+        """pos + neg + neu should approximately sum to 1.0."""
+        from apps.analysis.services.sentiment_service import analyze_sentiment
+        analyze_sentiment(self.topic.id)
+
+        for sr in SentimentResult.objects.filter(discussion__topic_id=self.topic.id):
+            total = sr.positive_score + sr.negative_score + sr.neutral_score
+            self.assertAlmostEqual(total, 1.0, places=2)
+
+    def test_skip_already_analyzed(self):
+        """Running twice should not create duplicate results."""
+        from apps.analysis.services.sentiment_service import analyze_sentiment
+        analyze_sentiment(self.topic.id)
+        stats = analyze_sentiment(self.topic.id)
+
+        self.assertEqual(stats["skipped"], 7)
+        self.assertEqual(
+            SentimentResult.objects.filter(discussion__topic_id=self.topic.id).count(),
+            7,  # Not 14
+        )
+
+    def test_stats_contain_counts(self):
+        """Stats should include positive/neutral/negative counts."""
+        from apps.analysis.services.sentiment_service import analyze_sentiment
+        stats = analyze_sentiment(self.topic.id)
+
+        self.assertIn("positive", stats)
+        self.assertIn("neutral", stats)
+        self.assertIn("negative", stats)
+        self.assertIn("average_sentiment", stats)
+        self.assertEqual(
+            stats["positive"] + stats["neutral"] + stats["negative"],
+            stats["discussion_count"],
+        )
+
+    def test_empty_content_skipped(self):
+        """Discussion with empty content should be skipped gracefully."""
+        Discussion.objects.create(
+            topic=self.topic,
+            source="reddit",
+            source_id="empty_sent",
+            content="",
+        )
+        from apps.analysis.services.sentiment_service import analyze_sentiment
+        stats = analyze_sentiment(self.topic.id)
+        # Should not crash, and empty discussion should not get a result
+        self.assertEqual(stats["discussion_count"], 7)
+
+
+class ClusterSentimentTest(TestCase):
+    """Test cluster sentiment aggregation."""
+
+    def setUp(self):
+        self.topic = Topic.objects.create(name="Cluster sent test")
+        self.run = AnalysisRun.objects.create(
+            topic=self.topic,
+            status=AnalysisRun.Status.COMPLETED,
+        )
+
+    def test_compute_cluster_sentiment(self):
+        """Cluster sentiment should aggregate member sentiments."""
+        cluster = Cluster.objects.create(
+            topic=self.topic,
+            analysis_run=self.run,
+            label="Test Cluster",
+            member_count=3,
+        )
+        # Create discussions with sentiment
+        for i, (score, label) in enumerate([
+            (0.8, "positive"), (0.6, "positive"), (-0.3, "negative"),
+        ]):
+            d = Discussion.objects.create(
+                topic=self.topic, source="reddit",
+                source_id=f"cs_{i}", content=f"Content {i}",
+            )
+            SentimentResult.objects.create(
+                discussion=d, compound_score=score,
+                positive_score=0.5, negative_score=0.3, neutral_score=0.2,
+                label=label,
+            )
+            ClusterMembership.objects.create(
+                discussion=d, cluster=cluster, distance=0.1,
+            )
+
+        from apps.analysis.services.sentiment_service import compute_cluster_sentiment
+        results = compute_cluster_sentiment(self.topic.id)
+
+        self.assertEqual(len(results), 1)
+        self.assertIn("avg_score", results[0])
+        self.assertIn("label", results[0])
+        self.assertIn("positive_pct", results[0])
+
+        # Verify stored in DB
+        cluster.refresh_from_db()
+        self.assertIn("avg_score", cluster.sentiment_data)
+
+    def test_empty_cluster_sentiment(self):
+        """Cluster with no sentiment data should default to neutral."""
+        cluster = Cluster.objects.create(
+            topic=self.topic, analysis_run=self.run,
+            label="Empty Cluster", member_count=0,
+        )
+
+        from apps.analysis.services.sentiment_service import compute_cluster_sentiment
+        results = compute_cluster_sentiment(self.topic.id)
+
+        self.assertEqual(results[0]["label"], "neutral")
+        self.assertEqual(results[0]["avg_score"], 0.0)
+
+
+class InsightEngineTest(TestCase):
+    """Test rule-based insight generation."""
+
+    def setUp(self):
+        self.topic = Topic.objects.create(name="Insight test topic")
+        self.run = AnalysisRun.objects.create(
+            topic=self.topic,
+            status=AnalysisRun.Status.COMPLETED,
+        )
+
+    def _create_sentiments(self, scores):
+        """Helper to create discussions with known sentiment scores."""
+        for i, score in enumerate(scores):
+            d = Discussion.objects.create(
+                topic=self.topic, source="reddit",
+                source_id=f"ins_{i}", content=f"Content {i}",
+            )
+            label = (
+                "positive" if score >= 0.05
+                else "negative" if score <= -0.05
+                else "neutral"
+            )
+            SentimentResult.objects.create(
+                discussion=d, compound_score=score,
+                positive_score=max(score, 0), negative_score=abs(min(score, 0)),
+                neutral_score=0.5, label=label,
+            )
+
+    def test_overall_sentiment_insight(self):
+        """Rule 1: Overall sentiment insight should always fire."""
+        self._create_sentiments([0.5, 0.3, -0.1, 0.2, 0.0])
+
+        from apps.analysis.services.insight_service import generate_insights
+        insights = generate_insights(self.topic.id, self.run)
+
+        # Should have at least the overall sentiment insight
+        self.assertGreater(len(insights), 0)
+        overall = [i for i in insights if "Overall sentiment" in i["content"]]
+        self.assertEqual(len(overall), 1)
+
+    def test_negative_cluster_insight(self):
+        """Rule 3: Should flag clusters with negative sentiment."""
+        cluster = Cluster.objects.create(
+            topic=self.topic, analysis_run=self.run,
+            label="Pricing Concerns", member_count=5,
+            sentiment_data={"avg_score": -0.45, "label": "negative",
+                            "negative_pct": 80, "positive_pct": 10, "neutral_pct": 10},
+        )
+        self._create_sentiments([0.1, 0.2, -0.3, -0.5, 0.0])
+
+        from apps.analysis.services.insight_service import generate_insights
+        insights = generate_insights(self.topic.id, self.run)
+
+        neg_insights = [i for i in insights if "Pricing Concerns" in i["content"]]
+        self.assertGreater(len(neg_insights), 0)
+
+    def test_source_comparison_insight(self):
+        """Rule 5: Should compare Reddit vs YouTube when both present."""
+        # Create Reddit discussions (positive)
+        for i in range(5):
+            d = Discussion.objects.create(
+                topic=self.topic, source="reddit",
+                source_id=f"src_r_{i}", content=f"Great stuff {i}",
+            )
+            SentimentResult.objects.create(
+                discussion=d, compound_score=0.5,
+                positive_score=0.7, negative_score=0.0, neutral_score=0.3,
+                label="positive",
+            )
+        # Create YouTube discussions (negative)
+        for i in range(5):
+            d = Discussion.objects.create(
+                topic=self.topic, source="youtube",
+                source_id=f"src_y_{i}", content=f"Terrible stuff {i}",
+            )
+            SentimentResult.objects.create(
+                discussion=d, compound_score=-0.5,
+                positive_score=0.0, negative_score=0.7, neutral_score=0.3,
+                label="negative",
+            )
+
+        from apps.analysis.services.insight_service import generate_insights
+        insights = generate_insights(self.topic.id, self.run)
+
+        source_insights = [i for i in insights if "Reddit" in i["content"] and "YouTube" in i["content"]]
+        self.assertEqual(len(source_insights), 1)
+
+    def test_dominant_theme_insight(self):
+        """Rule 6: Should flag clusters with >40% of discussions."""
+        cluster = Cluster.objects.create(
+            topic=self.topic, analysis_run=self.run,
+            label="Hot Topic", member_count=8,
+            sentiment_data={"avg_score": 0.1, "label": "positive",
+                            "positive_pct": 50, "negative_pct": 10, "neutral_pct": 40},
+        )
+        self._create_sentiments([0.1] * 10)  # 10 discussions total
+
+        from apps.analysis.services.insight_service import generate_insights
+        insights = generate_insights(self.topic.id, self.run)
+
+        dominant = [i for i in insights if "dominant" in i["content"].lower()]
+        self.assertEqual(len(dominant), 1)
+
+    def test_insights_stored_in_db(self):
+        """Generated insights should be persisted in the Insight model."""
+        self._create_sentiments([0.5, 0.3, -0.1])
+
+        from apps.analysis.services.insight_service import generate_insights
+        generate_insights(self.topic.id, self.run)
+
+        db_insights = Insight.objects.filter(topic=self.topic)
+        self.assertGreater(db_insights.count(), 0)
+
+    def test_no_sentiments_returns_empty(self):
+        """No sentiment data should produce no insights."""
+        from apps.analysis.services.insight_service import generate_insights
+        insights = generate_insights(self.topic.id, self.run)
+        self.assertEqual(insights, [])
+
+
+class SentimentAPITest(TestCase):
+    """Test the GET /api/v1/topics/{id}/sentiment/ endpoint."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.topic = Topic.objects.create(name="API sentiment test")
+
+    def test_empty_topic_returns_zero(self):
+        """Topic with no sentiment data should return empty response."""
+        response = self.client.get(
+            f"/api/v1/topics/{self.topic.id}/sentiment/"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["discussion_count"], 0)
+        self.assertEqual(response.data["overall"]["positive"], 0)
+
+    def test_nonexistent_topic_returns_404(self):
+        response = self.client.get("/api/v1/topics/99999/sentiment/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_sentiment_response_shape(self):
+        """Verify all required fields are present."""
+        d = Discussion.objects.create(
+            topic=self.topic, source="reddit",
+            source_id="api_sent_1", content="This is great!",
+        )
+        SentimentResult.objects.create(
+            discussion=d, compound_score=0.6,
+            positive_score=0.7, negative_score=0.0, neutral_score=0.3,
+            label="positive",
+        )
+
+        response = self.client.get(
+            f"/api/v1/topics/{self.topic.id}/sentiment/"
+        )
+        data = response.data
+        self.assertEqual(data["discussion_count"], 1)
+        self.assertIn("overall", data)
+        self.assertIn("positive", data["overall"])
+        self.assertIn("neutral", data["overall"])
+        self.assertIn("negative", data["overall"])
+        self.assertIn("average_score", data["overall"])
+        self.assertIn("cluster_breakdown", data)
+
+    def test_cluster_breakdown_included(self):
+        """Cluster breakdown should include sentiment data."""
+        run = AnalysisRun.objects.create(
+            topic=self.topic, status=AnalysisRun.Status.COMPLETED,
+        )
+        d = Discussion.objects.create(
+            topic=self.topic, source="reddit",
+            source_id="api_sent_2", content="Content",
+        )
+        SentimentResult.objects.create(
+            discussion=d, compound_score=0.5,
+            positive_score=0.6, negative_score=0.1, neutral_score=0.3,
+            label="positive",
+        )
+        Cluster.objects.create(
+            topic=self.topic, analysis_run=run,
+            label="Test", member_count=1,
+            sentiment_data={"avg_score": 0.5, "label": "positive",
+                            "positive_pct": 100, "negative_pct": 0, "neutral_pct": 0},
+        )
+
+        response = self.client.get(
+            f"/api/v1/topics/{self.topic.id}/sentiment/"
+        )
+        breakdown = response.data["cluster_breakdown"]
+        self.assertEqual(len(breakdown), 1)
+        self.assertEqual(breakdown[0]["sentiment_label"], "positive")
+
+    def test_status_includes_sentiment(self):
+        """GET /status/ should include sentiment_count and insight_count."""
+        response = self.client.get(
+            f"/api/v1/topics/{self.topic.id}/status/"
+        )
+        self.assertIn("sentiment_count", response.data)
+        self.assertIn("average_sentiment", response.data)
+        self.assertIn("insight_count", response.data)
+
+
+class InsightAPITest(TestCase):
+    """Test the GET /api/v1/topics/{id}/insights/ endpoint."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.topic = Topic.objects.create(name="API insight test")
+
+    def test_empty_topic_returns_zero(self):
+        response = self.client.get(
+            f"/api/v1/topics/{self.topic.id}/insights/"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["insight_count"], 0)
+        self.assertEqual(response.data["insights"], [])
+
+    def test_nonexistent_topic_returns_404(self):
+        response = self.client.get("/api/v1/topics/99999/insights/")
+        self.assertEqual(response.status_code, 404)
+
+    def test_insight_response_shape(self):
+        """Verify insight response has all required fields."""
+        run = AnalysisRun.objects.create(
+            topic=self.topic, status=AnalysisRun.Status.COMPLETED,
+        )
+        Insight.objects.create(
+            topic=self.topic, analysis_run=run,
+            insight_type="sentiment_shift",
+            content="Overall sentiment is positive",
+            confidence=0.9,
+            metadata={"average_score": 0.3},
+        )
+
+        response = self.client.get(
+            f"/api/v1/topics/{self.topic.id}/insights/"
+        )
+        data = response.data
+        self.assertEqual(data["insight_count"], 1)
+        ins = data["insights"][0]
+        self.assertIn("type", ins)
+        self.assertIn("content", ins)
+        self.assertIn("confidence", ins)
+        self.assertIn("metadata", ins)

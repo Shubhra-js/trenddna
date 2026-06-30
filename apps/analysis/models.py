@@ -131,6 +131,11 @@ class Cluster(models.Model):
         default=0.0,
         help_text="Intra-cluster similarity — higher is better",
     )
+    sentiment_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Aggregated sentiment: {"avg_score": -0.42, "label": "negative", "positive_pct": 20, ...}',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

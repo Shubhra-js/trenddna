@@ -10,4 +10,14 @@ urlpatterns = [
         views.get_topic_clusters,
         name="topic-clusters",
     ),
+    path(
+        "topics/<int:topic_id>/sentiment/",
+        views.get_topic_sentiment,
+        name="topic-sentiment",
+    ),
+    path(
+        "topics/<int:topic_id>/insights/",
+        views.get_topic_insights,
+        name="topic-insights",
+    ),
 ]

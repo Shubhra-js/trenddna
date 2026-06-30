@@ -165,8 +165,40 @@ def ingest_topic(topic_id: int) -> dict:
                 logger.error("Clustering failed for topic %d: %s", topic_id, e)
                 stats["errors"].append(f"clustering: {str(e)}")
 
+        # ===== Phase 6: Chain sentiment analysis =====
+        sentiment_stats = {"positive": 0, "neutral": 0, "negative": 0}
+        try:
+            from apps.analysis.services.sentiment_service import (
+                analyze_sentiment,
+                compute_cluster_sentiment,
+            )
+            sentiment_stats = analyze_sentiment(topic_id)
+
+            # Aggregate sentiment per cluster
+            if clustering_stats.get("cluster_count", 0) > 0:
+                compute_cluster_sentiment(topic_id)
+        except Exception as e:
+            logger.error("Sentiment analysis failed for topic %d: %s", topic_id, e)
+            stats["errors"].append(f"sentiment: {str(e)}")
+
+        # ===== Phase 6: Chain insight generation =====
+        try:
+            from apps.analysis.services.insight_service import generate_insights
+            from apps.analysis.models import AnalysisRun
+            # Reuse the analysis run created by clustering
+            analysis_run = (
+                AnalysisRun.objects
+                .filter(topic_id=topic_id)
+                .order_by("-started_at")
+                .first()
+            )
+            generate_insights(topic_id, analysis_run)
+        except Exception as e:
+            logger.error("Insight generation failed for topic %d: %s", topic_id, e)
+            stats["errors"].append(f"insights: {str(e)}")
+
         # Store lightweight ingestion metrics in topic.description
-        # (clustering metrics live in AnalysisRun.parameters)
+        # (clustering/sentiment metrics live in AnalysisRun + SentimentResult)
         metrics = {
             "ingestion_duration": ingestion_duration,
             "saved": stats["saved"],

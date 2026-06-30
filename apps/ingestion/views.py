@@ -107,6 +107,14 @@ def get_topic_status(request, topic_id):
     # Count clusters (live from DB)
     cluster_count = Cluster.objects.filter(topic_id=topic_id).count()
 
+    # Count sentiment results and insights (Phase 6)
+    from apps.analysis.models import SentimentResult, Insight
+    from django.db.models import Avg
+    sentiment_qs = SentimentResult.objects.filter(discussion__topic_id=topic_id)
+    sentiment_count = sentiment_qs.count()
+    average_sentiment = sentiment_qs.aggregate(avg=Avg("compound_score"))["avg"]
+    insight_count = Insight.objects.filter(topic_id=topic_id).count()
+
     # Parse ingestion metrics from topic.description (stored as JSON)
     ingestion_duration = None
     failed_sources = []
@@ -134,4 +142,7 @@ def get_topic_status(request, topic_id):
         "embedding_model": embedding_metrics.get("model", ""),
         "embedding_duration": embedding_metrics.get("duration"),
         "cluster_count": cluster_count,
+        "sentiment_count": sentiment_count,
+        "average_sentiment": round(average_sentiment, 4) if average_sentiment else None,
+        "insight_count": insight_count,
     })

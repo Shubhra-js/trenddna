@@ -122,20 +122,28 @@
             </div>
         </div>
 
-        <!-- Sentiment Timeline Chart -->
-        <div class="panel panel--wide" id="panel-sentiment">
+        <!-- Sentiment Analysis -->
+        <div class="panel" id="panel-sentiment">
             <div class="panel__header">
-                <h3 class="panel__title">Sentiment Timeline</h3>
-                <span class="panel__badge panel__badge--coming">Phase 7</span>
+                <h3 class="panel__title">Sentiment Analysis</h3>
+                <span class="panel__badge panel__badge--active" id="sentiment-badge">—</span>
             </div>
-            <div class="panel__body panel__body--chart">
-                <div class="panel__placeholder">
+            <div class="panel__body">
+                <div class="panel__placeholder" id="sentiment-placeholder">
                     <svg class="panel__placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 5-6"/>
                     </svg>
-                    <p>Sentiment timeline will appear here after analysis</p>
+                    <p>Sentiment analysis will appear here after pipeline completes</p>
                 </div>
-                <canvas id="chart-sentiment" hidden></canvas>
+                <div class="sentiment-charts" id="sentiment-charts" hidden>
+                    <div class="sentiment-charts__donut">
+                        <canvas id="chart-sentiment-donut"></canvas>
+                    </div>
+                    <div class="sentiment-charts__bars">
+                        <h4 class="sentiment-charts__subtitle">Sentiment by Cluster</h4>
+                        <canvas id="chart-cluster-bars"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -173,6 +181,24 @@
                     <p>Explainability insights will appear after clustering</p>
                 </div>
                 <div class="explainability" id="explainability-content" hidden></div>
+            </div>
+        </div>
+
+        <!-- Insight Cards -->
+        <div class="panel panel--wide" id="panel-insights">
+            <div class="panel__header">
+                <h3 class="panel__title">Key Insights</h3>
+                <span class="panel__badge panel__badge--active" id="insight-badge">—</span>
+            </div>
+            <div class="panel__body">
+                <div class="panel__placeholder" id="insight-placeholder">
+                    <svg class="panel__placeholder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/>
+                        <path d="M9 21h6M10 17v4M14 17v4"/>
+                    </svg>
+                    <p>Insights will be generated after sentiment analysis</p>
+                </div>
+                <div class="insight-list" id="insight-list" hidden></div>
             </div>
         </div>
 

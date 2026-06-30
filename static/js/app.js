@@ -58,6 +58,16 @@ const TrendApp = (() => {
         elements.clusterBadge = document.getElementById('cluster-badge');
         elements.explainContent = document.getElementById('explainability-content');
         elements.explainPlaceholder = document.getElementById('explain-placeholder');
+
+        // Sentiment panel elements (Phase 6)
+        elements.sentimentCharts = document.getElementById('sentiment-charts');
+        elements.sentimentPlaceholder = document.getElementById('sentiment-placeholder');
+        elements.sentimentBadge = document.getElementById('sentiment-badge');
+
+        // Insight panel elements (Phase 6)
+        elements.insightList = document.getElementById('insight-list');
+        elements.insightPlaceholder = document.getElementById('insight-placeholder');
+        elements.insightBadge = document.getElementById('insight-badge');
     }
 
     // =================================================================
@@ -290,29 +300,57 @@ const TrendApp = (() => {
             setStepCompleted('clustering',
                 `${status.cluster_count} themes discovered`
             );
-            // Update cluster stat card
             elements.statClusters.textContent = status.cluster_count;
         } else {
             setStepCompleted('clustering', 'Too few discussions to cluster');
         }
 
+        // Show sentiment completion (Phase 6)
+        if (status.sentiment_count > 0) {
+            const sentLabel = status.average_sentiment > 0.05 ? 'positive'
+                : status.average_sentiment < -0.05 ? 'negative' : 'neutral';
+            setStepCompleted('sentiment',
+                `${status.sentiment_count} analyzed — ${sentLabel}`
+            );
+            // Update sentiment stat card
+            if (status.average_sentiment !== null) {
+                const sign = status.average_sentiment >= 0 ? '+' : '';
+                elements.statSentiment.textContent = sign + status.average_sentiment.toFixed(2);
+            }
+        } else {
+            setStepCompleted('sentiment', 'No discussions to analyze');
+        }
+
+        // Show insights completion (Phase 6)
+        if (status.insight_count > 0) {
+            setStepCompleted('insights',
+                `${status.insight_count} insights generated`
+            );
+        } else {
+            setStepCompleted('insights', 'No insights to generate');
+        }
+
         // Mark future steps as pending
-        const futureSteps = ['sentiment', 'trends', 'insights'];
+        const futureSteps = ['trends'];
         futureSteps.forEach(step => {
             const el = elements.statusSteps.querySelector(`[data-step="${step}"]`);
             if (el) {
-                el.querySelector('.step__detail').textContent = 'Phase 6+';
+                el.querySelector('.step__detail').textContent = 'Phase 7+';
             }
         });
 
         showToast(
-            `Pipeline complete! ${status.discussion_count} discussions, ${status.cluster_count || 0} clusters`,
+            `Pipeline complete! ${status.discussion_count} discussions, `
+            + `${status.cluster_count || 0} clusters, `
+            + `${status.insight_count || 0} insights`,
             'success'
         );
 
-        // Auto-load cluster results
+        // Auto-load all results
         if (currentTopicId) {
             loadClusters(currentTopicId);
+            loadSentiment(currentTopicId);
+            loadInsights(currentTopicId);
         }
 
         // Refresh history to show updated counts
@@ -616,6 +654,115 @@ const TrendApp = (() => {
             html += '</div>';
             elements.explainContent.innerHTML = html;
         }
+    }
+    // =================================================================
+    // Sentiment Rendering (Phase 6)
+    // =================================================================
+
+    /**
+     * Load and render sentiment analysis results for a topic.
+     * Creates donut chart + cluster sentiment bars via TrendCharts.
+     */
+    async function loadSentiment(topicId) {
+        try {
+            const data = await TrendAPI.getSentiment(topicId);
+
+            if (data.discussion_count === 0) {
+                return; // No sentiment data — keep placeholder
+            }
+
+            // Hide placeholder, show charts
+            if (elements.sentimentPlaceholder) elements.sentimentPlaceholder.hidden = true;
+            if (elements.sentimentCharts) elements.sentimentCharts.hidden = false;
+
+            // Update badge with score
+            if (elements.sentimentBadge) {
+                const avg = data.overall.average_score;
+                const sign = avg >= 0 ? '+' : '';
+                const label = avg > 0.05 ? 'Positive'
+                    : avg < -0.05 ? 'Negative' : 'Neutral';
+                elements.sentimentBadge.textContent = `${label} (${sign}${avg.toFixed(2)})`;
+            }
+
+            // Create donut chart
+            TrendCharts.createSentimentDonut('chart-sentiment-donut', data.overall);
+
+            // Create cluster sentiment bars
+            if (data.cluster_breakdown && data.cluster_breakdown.length > 0) {
+                TrendCharts.createClusterSentimentBars('chart-cluster-bars', data.cluster_breakdown);
+            }
+        } catch (error) {
+            console.error('Failed to load sentiment:', error);
+        }
+    }
+
+    // =================================================================
+    // Insight Rendering (Phase 6)
+    // =================================================================
+
+    /**
+     * Load and render AI-generated insights.
+     */
+    async function loadInsights(topicId) {
+        try {
+            const data = await TrendAPI.getInsights(topicId);
+
+            if (!data.insights || data.insights.length === 0) {
+                return; // No insights — keep placeholder
+            }
+
+            // Hide placeholder, show list
+            if (elements.insightPlaceholder) elements.insightPlaceholder.hidden = true;
+            if (elements.insightList) elements.insightList.hidden = false;
+
+            // Update badge
+            if (elements.insightBadge) {
+                elements.insightBadge.textContent = `${data.insight_count} insights`;
+            }
+
+            // Render insight cards
+            elements.insightList.innerHTML = data.insights
+                .map(renderInsightCard)
+                .join('');
+        } catch (error) {
+            console.error('Failed to load insights:', error);
+        }
+    }
+
+    /**
+     * Render a single insight card with type icon and confidence bar.
+     */
+    function renderInsightCard(insight) {
+        const typeIcons = {
+            'trend_spike': '\u{1F4C8}',
+            'sentiment_shift': '\u{1F4CA}',
+            'cluster_summary': '\u{1F3AF}',
+            'explanation': '\u{1F4A1}',
+        };
+        const icon = typeIcons[insight.type] || '\u{1F4CB}';
+
+        const typeLabels = {
+            'trend_spike': 'Trend',
+            'sentiment_shift': 'Sentiment',
+            'cluster_summary': 'Cluster',
+            'explanation': 'Insight',
+        };
+        const label = typeLabels[insight.type] || 'Finding';
+
+        const confidencePct = Math.round(insight.confidence * 100);
+
+        return `
+            <div class="insight-card">
+                <div class="insight-card__icon">${icon}</div>
+                <div class="insight-card__body">
+                    <div class="insight-card__header">
+                        <span class="insight-card__type">${label}</span>
+                        <span class="insight-card__confidence">${confidencePct}% confidence</span>
+                    </div>
+                    <p class="insight-card__content">${escapeHtml(insight.content)}</p>
+                </div>
+            </div>
+        `;
     }
 
     // =================================================================

@@ -60,3 +60,8 @@ sentence-transformers==3.3.1
 # WHY explicit: sentence-transformers includes it, but we use numpy
 # directly for tobytes()/frombuffer() vector serialization.
 numpy>=1.26.0
+
+# Natural Language Toolkit — VADER sentiment analysis (Phase 6)
+# WHY nltk (not TextBlob): VADER is built for social media text,
+# handles slang/emojis/emphasis, and runs at ~10,000 texts/second.
+nltk>=3.9.0

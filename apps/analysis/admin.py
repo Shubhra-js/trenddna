@@ -33,13 +33,18 @@ class AnalysisRunAdmin(admin.ModelAdmin):
 
 @admin.register(SentimentResult)
 class SentimentResultAdmin(admin.ModelAdmin):
-    list_display = ["discussion", "label", "compound_score"]
+    list_display = ["discussion", "topic_name", "label", "compound_score", "positive_score", "negative_score"]
     list_filter = ["label"]
+    readonly_fields = ["created_at"]
+
+    def topic_name(self, obj):
+        return obj.discussion.topic.name
+    topic_name.short_description = "Topic"
 
 
 @admin.register(Cluster)
 class ClusterAdmin(admin.ModelAdmin):
-    list_display = ["label", "topic", "algorithm", "member_count", "coherence_score", "keywords_display"]
+    list_display = ["label", "topic", "algorithm", "member_count", "coherence_score", "sentiment_display", "keywords_display"]
     list_filter = ["algorithm", "topic"]
     search_fields = ["label", "summary"]
 
@@ -48,6 +53,15 @@ class ClusterAdmin(admin.ModelAdmin):
             return ", ".join(obj.keywords[:5])
         return "—"
     keywords_display.short_description = "Keywords"
+
+    def sentiment_display(self, obj):
+        data = obj.sentiment_data or {}
+        label = data.get("label", "—")
+        score = data.get("avg_score", 0)
+        if label == "—":
+            return "—"
+        return f"{label} ({score:+.2f})"
+    sentiment_display.short_description = "Sentiment"
 
 
 @admin.register(ClusterMembership)
@@ -58,9 +72,14 @@ class ClusterMembershipAdmin(admin.ModelAdmin):
 
 @admin.register(Insight)
 class InsightAdmin(admin.ModelAdmin):
-    list_display = ["insight_type", "topic", "confidence", "created_at"]
+    list_display = ["insight_type", "topic", "content_preview", "confidence", "created_at"]
     list_filter = ["insight_type", "topic"]
     search_fields = ["content"]
+    readonly_fields = ["created_at"]
+
+    def content_preview(self, obj):
+        return obj.content[:80] + "..." if len(obj.content) > 80 else obj.content
+    content_preview.short_description = "Content"
 
 
 @admin.register(Embedding)

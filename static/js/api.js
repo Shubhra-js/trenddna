@@ -151,17 +151,23 @@ const TrendAPI = (() => {
             return request(`/topics/${id}/clusters/`);
         },
 
+        // =============================================================
+        // Sentiment & Insights (Phase 6 — live)
+        // =============================================================
+
         /**
-         * Get sentiment timeline data (Phase 7).
+         * Get sentiment analysis results for a topic.
          * GET /api/v1/topics/{id}/sentiment/
+         * Returns { overall: {positive, neutral, negative}, cluster_breakdown }
          */
         getSentiment(id) {
             return request(`/topics/${id}/sentiment/`);
         },
 
         /**
-         * Get AI-generated insights (Phase 7).
+         * Get rule-generated insights for a topic.
          * GET /api/v1/topics/{id}/insights/
+         * Returns { insight_count, insights: [{type, content, confidence}] }
          */
         getInsights(id) {
             return request(`/topics/${id}/insights/`);
